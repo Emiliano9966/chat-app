@@ -24,13 +24,25 @@ const sendButton = document.getElementById("send-button");
 
 let username = "";
 
+// --- Banned words list for usernames ---
+const bannedWords = ["nigger", "nigga"]; // Add your full list
+
 // --- Username overlay ---
 usernameSubmit.addEventListener("click", setUsername);
 usernameInput.addEventListener("keypress", e => { if(e.key==="Enter") setUsername(); });
 
 function setUsername() {
-  const name = usernameInput.value.trim();
+  let name = usernameInput.value.trim().toLowerCase(); // convert to lowercase
   if (!name) return;
+
+  // Check for banned words
+  for (const word of bannedWords) {
+    if (name.includes(word)) {
+      alert("Please choose a username without bad words!");
+      return;
+    }
+  }
+
   username = name;
   overlay.style.display = "none";
   messageInput.disabled = false;
