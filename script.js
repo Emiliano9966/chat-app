@@ -10,7 +10,6 @@ const firebaseConfig = {
   measurementId: "G-YX3CM2QRZB"
 };
 
-// Initialize Firebase
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
@@ -23,19 +22,19 @@ const messageInput = document.getElementById("message-input");
 const sendButton = document.getElementById("send-button");
 
 let username = "";
+let replyTo = null;
 
-// --- Banned words list for usernames ---
-const bannedWords = ["nigger", "nigga"]; // Add your full list
+// --- Banned words for usernames ---
+const bannedWords = ["nigger", "nigga"];
 
 // --- Username overlay ---
 usernameSubmit.addEventListener("click", setUsername);
-usernameInput.addEventListener("keypress", e => { if(e.key==="Enter") setUsername(); });
+usernameInput.addEventListener("keypress", e => { if (e.key === "Enter") setUsername(); });
 
 function setUsername() {
-  let name = usernameInput.value.trim().toLowerCase(); // convert to lowercase
+  let name = usernameInput.value.trim().toLowerCase();
   if (!name) return;
 
-  // Check for banned words
   for (const word of bannedWords) {
     if (name.includes(word)) {
       alert("err: user not allowed");
@@ -48,44 +47,33 @@ function setUsername() {
   messageInput.disabled = false;
   sendButton.disabled = false;
 
-  const notice = document.createElement("div");
-  notice.classList.add("notice");
-  notice.textContent = `You are now chatting as: ${username}`;
-  chatDisplay.appendChild(notice);
+  // Send a system message (orange glow)
+  pushMessage("system", `${username} joined the chat`);
 }
 
-// --- Daily Wipe ---
+// --- Daily wipe ---
 function dailyWipe() {
   const lastWipe = localStorage.getItem("lastWipe") || "";
-  const today = new Date().toISOString().slice(0,10); // YYYY-MM-DD
-
-  if(lastWipe !== today) {
-    db.ref("messages").remove(); // wipe all messages
+  const today = new Date().toISOString().slice(0, 10);
+  if (lastWipe !== today) {
+    db.ref("messages").remove();
     localStorage.setItem("lastWipe", today);
-    console.log("Daily chat wipe executed!");
-    
-    // Optional: show a notice in chat
-    const notice = document.createElement("div");
-    notice.classList.add("notice");
-    notice.textContent = "Chat has been wiped for the day.";
-    chatDisplay.appendChild(notice);
   }
 }
 dailyWipe();
 
-// --- Push message & trim old messages ---
 const MAX_MESSAGES = 500;
 
-function pushMessage(sender, text) {
-  const msg = { sender, text, ts: Date.now() };
+// --- Push message to database ---
+function pushMessage(sender, text, replyId = null, isNotice = false) {
+  const msg = { sender, text, ts: Date.now(), replyId, isNotice };
   const ref = db.ref("messages");
 
   ref.push(msg).then(() => {
-    // Keep only last MAX_MESSAGES
     ref.orderByChild("ts").once("value", snapshot => {
       const messages = snapshot.val();
       const keys = Object.keys(messages || {});
-      if(keys.length > MAX_MESSAGES) {
+      if (keys.length > MAX_MESSAGES) {
         const oldest = keys.slice(0, keys.length - MAX_MESSAGES);
         oldest.forEach(k => ref.child(k).remove());
       }
@@ -95,30 +83,72 @@ function pushMessage(sender, text) {
 
 // --- Listen for new messages ---
 db.ref("messages").limitToLast(MAX_MESSAGES).on("child_added", snapshot => {
+  const id = snapshot.key;
   const m = snapshot.val();
+
   const msgElement = document.createElement("div");
   msgElement.classList.add("message");
+
+  // Self highlight
   if (m.sender === username) msgElement.classList.add("self");
 
-  const timestamp = new Date(m.ts).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+  // 🟧 Add system class for orange-glow messages
+  if (m.sender === "system") msgElement.classList.add("system");
 
-  msgElement.innerHTML = `
+  const timestamp = new Date(m.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  const content = document.createElement("div");
+  content.classList.add("message-content");
+
+  const usernameClass = m.sender === "system" ? "username system" : "username";
+  const colonClass = m.sender === "system" ? "colon system" : "colon"; // 🟧 colon glow for system
+
+  content.innerHTML = `
     <span class="timestamp">${timestamp}</span>
-    <span class="username">${m.sender}</span>
-    <span class="colon">:</span>
+    <span class="${usernameClass}">${m.sender}</span>
+    <span class="${colonClass}">:</span>
     <span class="text">${m.text}</span>
+    ${m.sender !== "system" ? '<span class="reply-btn" title="Reply">↩️</span>' : ""}
   `;
+
+  // Reply button logic
+  if (m.sender !== "system") {
+    content.querySelector(".reply-btn").addEventListener("click", () => {
+      replyTo = id;
+      messageInput.placeholder = `Replying to ${m.sender}...`;
+      messageInput.focus();
+    });
+  }
+
+  msgElement.appendChild(content);
+
+  // --- If message is a reply ---
+  if (m.replyId) {
+    db.ref("messages").child(m.replyId).once("value", snap => {
+      const parent = snap.val();
+      if (parent) {
+        const replyEl = document.createElement("div");
+        replyEl.classList.add("reply-container");
+        replyEl.textContent = `${parent.sender}: ${parent.text}`;
+        msgElement.appendChild(replyEl);
+      }
+    });
+  }
+
   chatDisplay.appendChild(msgElement);
   chatDisplay.scrollTop = chatDisplay.scrollHeight;
 });
 
 // --- Send message ---
 sendButton.addEventListener("click", sendMessage);
-messageInput.addEventListener("keypress", e => { if(e.key==="Enter") sendMessage(); });
+messageInput.addEventListener("keypress", e => { if (e.key === "Enter") sendMessage(); });
 
 function sendMessage() {
   const text = messageInput.value.trim();
-  if(!text) return;
-  pushMessage(username || "Anonymous", text);
+  if (!text) return;
+
+  pushMessage(username || "Anonymous", text, replyTo);
   messageInput.value = "";
+  replyTo = null;
+  messageInput.placeholder = "Type a message...";
 }
