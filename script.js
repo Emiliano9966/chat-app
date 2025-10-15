@@ -42,14 +42,47 @@ function setUsername() {
   chatDisplay.appendChild(notice);
 }
 
-// --- Push message to Firebase ---
+// --- Daily Wipe ---
+function dailyWipe() {
+  const lastWipe = localStorage.getItem("lastWipe") || "";
+  const today = new Date().toISOString().slice(0,10); // YYYY-MM-DD
+
+  if(lastWipe !== today) {
+    db.ref("messages").remove(); // wipe all messages
+    localStorage.setItem("lastWipe", today);
+    console.log("Daily chat wipe executed!");
+    
+    // Optional: show a notice in chat
+    const notice = document.createElement("div");
+    notice.classList.add("notice");
+    notice.textContent = "Chat has been wiped for the day.";
+    chatDisplay.appendChild(notice);
+  }
+}
+dailyWipe();
+
+// --- Push message & trim old messages ---
+const MAX_MESSAGES = 500;
+
 function pushMessage(sender, text) {
   const msg = { sender, text, ts: Date.now() };
-  db.ref("messages").push(msg);
+  const ref = db.ref("messages");
+
+  ref.push(msg).then(() => {
+    // Keep only last MAX_MESSAGES
+    ref.orderByChild("ts").once("value", snapshot => {
+      const messages = snapshot.val();
+      const keys = Object.keys(messages || {});
+      if(keys.length > MAX_MESSAGES) {
+        const oldest = keys.slice(0, keys.length - MAX_MESSAGES);
+        oldest.forEach(k => ref.child(k).remove());
+      }
+    });
+  });
 }
 
 // --- Listen for new messages ---
-db.ref("messages").limitToLast(100).on("child_added", snapshot => {
+db.ref("messages").limitToLast(MAX_MESSAGES).on("child_added", snapshot => {
   const m = snapshot.val();
   const msgElement = document.createElement("div");
   msgElement.classList.add("message");
@@ -73,7 +106,7 @@ messageInput.addEventListener("keypress", e => { if(e.key==="Enter") sendMessage
 
 function sendMessage() {
   const text = messageInput.value.trim();
-  if (!text) return;
+  if(!text) return;
   pushMessage(username || "Anonymous", text);
   messageInput.value = "";
 }
