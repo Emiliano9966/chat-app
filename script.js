@@ -38,7 +38,7 @@ function setUsername() {
   // Check for banned words
   for (const word of bannedWords) {
     if (name.includes(word)) {
-      alert("Please choose a username without bad words!");
+      alert("err: user not allowed");
       return;
     }
   }
